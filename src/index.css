@@ -1,0 +1,84 @@
+:root {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #0f172a;
+  background-color: #f5f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+body.theme-light {
+  background-color: #f5f7fb;
+  color: #0f172a;
+}
+
+body.theme-dark {
+  background-color: #0b1220;
+  color: #e5e7eb;
+}
+
+body.theme-dark .header p,
+body.theme-dark .counts,
+body.theme-dark .empty {
+  color: #9ca3af;
+}
+
+body.theme-dark .task-form input,
+body.theme-dark .due-input,
+body.theme-dark .filters button,
+body.theme-dark .task-list li,
+body.theme-dark .clear,
+body.theme-dark .theme-toggle {
+  background: #0f172a;
+  border-color: #1f2937;
+  color: #e5e7eb;
+}
+
+body.theme-dark .task-form input::placeholder {
+  color: #9ca3af;
+}
+
+body.theme-dark .filters button.active {
+  background: #e5e7eb;
+  color: #111827;
+  border-color: #e5e7eb;
+}
+
+body.theme-dark .delete {
+  background: #3b1217;
+  border-color: #7f1d1d;
+  color: #fecaca;
+}
+
+body.theme-dark .task-meta {
+  color: #9ca3af;
+}
+
+body.theme-dark .overdue {
+  background: #2a1115;
+  border-color: #7f1d1d;
+}
+
+body.theme-dark .overdue-badge {
+  background: #3b1217;
+  border-color: #7f1d1d;
+  color: #fecaca;
+}
