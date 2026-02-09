@@ -143,7 +143,7 @@ function App() {
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
-    document.title = "Layne's Task Manager"
+    document.title = "Personal Task Manager"
   }, [])
 
   useEffect(() => {
