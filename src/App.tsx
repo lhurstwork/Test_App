@@ -36,7 +36,7 @@ type ImportableTask = {
   status: Status
 }
 
-type Filter = 'all' | 'active' | 'completed'
+type TaskView = 'all_tasks' | 'my_day' | 'upcoming' | 'overdue' | 'completed'
 type Theme = 'light' | 'dark'
 type StatusFilter = 'all_statuses' | Status
 type SortBy = 'due_date' | 'priority' | 'created_desc'
@@ -61,6 +61,13 @@ const isStatusFilter = (value: unknown): value is StatusFilter =>
 
 const isSortBy = (value: unknown): value is SortBy =>
   value === 'due_date' || value === 'priority' || value === 'created_desc'
+
+const toLocalDateKey = (date: Date): string => {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 const normalizeTaskState = (
   completed: boolean,
@@ -120,7 +127,7 @@ function App() {
   const [dueDate, setDueDate] = useState<string | null>(null)
   const [priority, setPriority] = useState<Priority>('medium')
   const [status, setStatus] = useState<Status>('open')
-  const [filter, setFilter] = useState<Filter>('all')
+  const [view, setView] = useState<TaskView>('all_tasks')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all_statuses')
   const [sortBy, setSortBy] = useState<SortBy>('created_desc')
   const [error, setError] = useState<string | null>(null)
@@ -243,20 +250,29 @@ function App() {
   }, [session])
 
   const visibleTasks = useMemo(() => {
-    const completionFiltered = (() => {
-      if (filter === 'active') {
-        return tasks.filter((t) => !t.completed)
-      }
-      if (filter === 'completed') {
-        return tasks.filter((t) => t.completed)
-      }
-      return tasks
-    })()
+    const today = new Date()
+    const todayKey = toLocalDateKey(today)
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    const tomorrowKey = toLocalDateKey(tomorrow)
+    const plusSeven = new Date(today)
+    plusSeven.setDate(plusSeven.getDate() + 7)
+    const plusSevenKey = toLocalDateKey(plusSeven)
+
+    const viewFiltered = tasks.filter((task) => {
+      if (view === 'all_tasks') return true
+      if (view === 'completed') return task.completed
+      if (task.completed || !task.dueDate) return false
+      if (view === 'overdue') return task.dueDate < todayKey
+      if (view === 'my_day') return task.dueDate === todayKey || task.dueDate < todayKey
+      if (view === 'upcoming') return task.dueDate >= tomorrowKey && task.dueDate <= plusSevenKey
+      return true
+    })
 
     const statusFiltered =
       statusFilter === 'all_statuses'
-        ? completionFiltered
-        : completionFiltered.filter((t) => t.status === statusFilter)
+        ? viewFiltered
+        : viewFiltered.filter((t) => t.status === statusFilter)
 
     return [...statusFiltered].sort((a, b) => {
       if (sortBy === 'due_date') {
@@ -278,11 +294,10 @@ function App() {
 
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     })
-  }, [filter, sortBy, statusFilter, tasks])
+  }, [sortBy, statusFilter, tasks, view])
 
   const totalCount = tasks.length
   const completedCount = tasks.filter((t) => t.completed).length
-  const activeCount = totalCount - completedCount
 
   const resetNewTaskInputs = () => {
     setTitle('')
@@ -635,21 +650,39 @@ function App() {
       </form>
 
       <div className="toolbar">
-        <div className="filters" role="tablist" aria-label="Task filters">
-          <button type="button" className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>
-            All
-          </button>
+        <div className="filters" role="tablist" aria-label="Task views">
           <button
             type="button"
-            className={filter === 'active' ? 'active' : ''}
-            onClick={() => setFilter('active')}
+            className={view === 'all_tasks' ? 'active' : ''}
+            onClick={() => setView('all_tasks')}
           >
-            Active
+            All Tasks
           </button>
           <button
             type="button"
-            className={filter === 'completed' ? 'active' : ''}
-            onClick={() => setFilter('completed')}
+            className={view === 'my_day' ? 'active' : ''}
+            onClick={() => setView('my_day')}
+          >
+            My Day
+          </button>
+          <button
+            type="button"
+            className={view === 'upcoming' ? 'active' : ''}
+            onClick={() => setView('upcoming')}
+          >
+            Upcoming
+          </button>
+          <button
+            type="button"
+            className={view === 'overdue' ? 'active' : ''}
+            onClick={() => setView('overdue')}
+          >
+            Overdue
+          </button>
+          <button
+            type="button"
+            className={view === 'completed' ? 'active' : ''}
+            onClick={() => setView('completed')}
           >
             Completed
           </button>
@@ -685,7 +718,7 @@ function App() {
           </select>
         </div>
         <div className="counts">
-          {activeCount} active / {totalCount} total
+          Showing {visibleTasks.length} of {totalCount} tasks
         </div>
       </div>
 
