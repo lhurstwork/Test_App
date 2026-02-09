@@ -4,7 +4,7 @@ import './App.css'
 import { supabase, supabaseConfigError } from './lib/supabaseClient'
 
 type TaskTag = 'work' | 'personal' | null
-type TaskView = 'all' | 'work' | 'personal'
+type TaskView = 'all' | 'work' | 'personal' | 'overdue' | 'upcoming' | 'completed'
 
 type Task = {
   id: string
@@ -42,6 +42,32 @@ const toLocalDateKey = (date: Date): string => {
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+const addDays = (date: Date, days: number): Date => {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+const toDueDateKey = (dueDate: string | null): string | null => {
+  if (!dueDate) return null
+  const dateOnlyMatch = dueDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (dateOnlyMatch) {
+    return `${dateOnlyMatch[1]}-${dateOnlyMatch[2]}-${dateOnlyMatch[3]}`
+  }
+
+  const parsed = new Date(dueDate)
+  if (!Number.isNaN(parsed.getTime())) {
+    return toLocalDateKey(parsed)
+  }
+
+  const fallbackParsed = new Date(dueDate.replace(' ', 'T'))
+  if (!Number.isNaN(fallbackParsed.getTime())) {
+    return toLocalDateKey(fallbackParsed)
+  }
+
+  return null
 }
 
 const normalizeTag = (value: unknown): TaskTag => {
@@ -254,22 +280,62 @@ function App() {
   }
 
   const todayKey = toLocalDateKey(new Date())
-  const allCount = tasks.length
-  const workCount = tasks.filter((task) => task.tag === 'work').length
-  const personalCount = tasks.filter((task) => task.tag === 'personal').length
-
-  const filteredTasks = useMemo(() => {
-    if (view === 'all') return tasks
-    return tasks.filter((task) => task.tag === view)
-  }, [tasks, view])
+  const tomorrowKey = toLocalDateKey(addDays(new Date(), 1))
+  const nextWeekKey = toLocalDateKey(addDays(new Date(), 7))
 
   const tasksWithFlags = useMemo(
     () =>
-      filteredTasks.map((task) => ({
+      tasks.map((task) => {
+        const dueDateKey = toDueDateKey(task.dueDate)
+        const overdue = !task.completed && dueDateKey !== null && dueDateKey < todayKey
+        const upcoming =
+          !task.completed &&
+          dueDateKey !== null &&
+          dueDateKey >= tomorrowKey &&
+          dueDateKey <= nextWeekKey
+
+        return {
+          task,
+          overdue,
+          upcoming,
+        }
+      }),
+    [tasks, todayKey, tomorrowKey, nextWeekKey],
+  )
+
+  const viewCounts = useMemo(
+    () => ({
+      all: tasksWithFlags.length,
+      work: tasksWithFlags.filter(({ task }) => task.tag === 'work').length,
+      personal: tasksWithFlags.filter(({ task }) => task.tag === 'personal').length,
+      overdue: tasksWithFlags.filter(({ overdue }) => overdue).length,
+      upcoming: tasksWithFlags.filter(({ upcoming }) => upcoming).length,
+      completed: tasksWithFlags.filter(({ task }) => task.completed).length,
+    }),
+    [tasksWithFlags],
+  )
+
+  const filteredTasksWithFlags = useMemo(
+    () =>
+      tasksWithFlags.filter(({ task, overdue, upcoming }) => {
+        if (view === 'all') return true
+        if (view === 'work') return task.tag === 'work'
+        if (view === 'personal') return task.tag === 'personal'
+        if (view === 'overdue') return overdue
+        if (view === 'upcoming') return upcoming
+        if (view === 'completed') return task.completed
+        return true
+      }),
+    [tasksWithFlags, view],
+  )
+
+  const visibleTasks = useMemo(
+    () =>
+      filteredTasksWithFlags.map(({ task, overdue }) => ({
         task,
-        overdue: !task.completed && task.dueDate !== null && task.dueDate < todayKey,
+        overdue,
       })),
-    [filteredTasks, todayKey],
+    [filteredTasksWithFlags],
   )
 
   if (supabaseConfigError || !supabase) {
@@ -364,7 +430,7 @@ function App() {
             onClick={() => setView('all')}
           >
             <span>All</span>
-            <span className="view-count">{allCount}</span>
+            <span className="view-count">{viewCounts.all}</span>
           </button>
           <button
             type="button"
@@ -372,7 +438,7 @@ function App() {
             onClick={() => setView('work')}
           >
             <span>Work</span>
-            <span className="view-count">{workCount}</span>
+            <span className="view-count">{viewCounts.work}</span>
           </button>
           <button
             type="button"
@@ -380,22 +446,46 @@ function App() {
             onClick={() => setView('personal')}
           >
             <span>Personal</span>
-            <span className="view-count">{personalCount}</span>
+            <span className="view-count">{viewCounts.personal}</span>
+          </button>
+          <button
+            type="button"
+            className={`sidebar-view ${view === 'overdue' ? 'active' : ''}`}
+            onClick={() => setView('overdue')}
+          >
+            <span>Overdue</span>
+            <span className="view-count">{viewCounts.overdue}</span>
+          </button>
+          <button
+            type="button"
+            className={`sidebar-view ${view === 'upcoming' ? 'active' : ''}`}
+            onClick={() => setView('upcoming')}
+          >
+            <span>Upcoming</span>
+            <span className="view-count">{viewCounts.upcoming}</span>
+          </button>
+          <button
+            type="button"
+            className={`sidebar-view ${view === 'completed' ? 'active' : ''}`}
+            onClick={() => setView('completed')}
+          >
+            <span>Completed</span>
+            <span className="view-count">{viewCounts.completed}</span>
           </button>
         </aside>
 
         <section className="main-panel">
           <div className="toolbar">
-            <div className="counts">{loading ? 'Loading tasks...' : `${tasksWithFlags.length} shown`}</div>
+            <div className="counts">{loading ? 'Loading tasks...' : `${visibleTasks.length} shown`}</div>
           </div>
 
           <ul className="task-list">
             {loading ? (
               <li className="empty">Loading tasks...</li>
-            ) : tasksWithFlags.length === 0 ? (
+            ) : visibleTasks.length === 0 ? (
               <li className="empty">No tasks to show.</li>
             ) : (
-              tasksWithFlags.map(({ task, overdue }) => (
+              visibleTasks.map(({ task, overdue }) => (
                 <li
                   key={task.id}
                   className={`${task.completed ? 'done' : ''} ${overdue ? 'overdue' : ''}`}
