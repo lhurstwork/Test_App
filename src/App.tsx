@@ -570,7 +570,7 @@ function App() {
     <div className="app">
       <header className="header">
         <div className="title-row">
-          <h1>Task Manager</h1>
+          <h1>Personal Task Manager</h1>
           <div className="header-actions">
             <button
               type="button"
