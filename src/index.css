@@ -46,15 +46,38 @@ body.theme-dark .task-form input,
 body.theme-dark .due-input,
 body.theme-dark .compact-select,
 body.theme-dark .inline-control,
+body.theme-dark .tag-chip,
 body.theme-dark .auth-field input,
 body.theme-dark .auth-card,
 body.theme-dark .filters button,
 body.theme-dark .task-list li,
+body.theme-dark .sidebar,
 body.theme-dark .clear,
 body.theme-dark .theme-toggle {
   background: #0f172a;
   border-color: #1f2937;
   color: #e5e7eb;
+}
+
+body.theme-dark .sidebar-view:hover {
+  background: #111c2f;
+}
+
+body.theme-dark .sidebar-view.active {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+body.theme-dark .view-count {
+  background: #111827;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+
+body.theme-dark .sidebar-view.active .view-count {
+  background: #d1d5db;
+  border-color: #9ca3af;
+  color: #111827;
 }
 
 body.theme-dark .task-form input::placeholder {

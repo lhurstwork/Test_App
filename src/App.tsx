@@ -3,12 +3,16 @@ import type { Session } from '@supabase/supabase-js'
 import './App.css'
 import { supabase, supabaseConfigError } from './lib/supabaseClient'
 
+type TaskTag = 'work' | 'personal' | null
+type TaskView = 'all' | 'work' | 'personal'
+
 type Task = {
   id: string
   title: string
   completed: boolean
   createdAt: string
   dueDate: string | null
+  tag: TaskTag
 }
 
 type DbTaskRow = {
@@ -17,6 +21,7 @@ type DbTaskRow = {
   completed: boolean
   created_at: string
   due_date: string | null
+  tag: TaskTag
 }
 
 type InsertTaskPayload = {
@@ -24,6 +29,7 @@ type InsertTaskPayload = {
   completed: boolean
   created_at: string
   due_date: string | null
+  tag: TaskTag
   user_id?: string
 }
 
@@ -38,12 +44,20 @@ const toLocalDateKey = (date: Date): string => {
   return `${year}-${month}-${day}`
 }
 
+const normalizeTag = (value: unknown): TaskTag => {
+  if (value === 'work' || value === 'personal') {
+    return value
+  }
+  return null
+}
+
 const toAppTask = (row: DbTaskRow): Task => ({
   id: row.id,
   title: row.text,
   completed: row.completed,
   createdAt: row.created_at,
   dueDate: row.due_date,
+  tag: normalizeTag(row.tag),
 })
 
 const parseBuildVersion = (): { sha: string; time: string } => {
@@ -56,6 +70,8 @@ function App() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [newTitle, setNewTitle] = useState('')
   const [newDueDate, setNewDueDate] = useState<string | null>(null)
+  const [newTag, setNewTag] = useState<TaskTag>(null)
+  const [view, setView] = useState<TaskView>('all')
   const [theme, setTheme] = useState<Theme>('light')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -153,6 +169,7 @@ function App() {
       completed: false,
       created_at: new Date().toISOString(),
       due_date: newDueDate,
+      tag: newTag,
       ...(session?.user.id ? { user_id: session.user.id } : {}),
     }
 
@@ -167,6 +184,7 @@ function App() {
     setTasks((prev) => [toAppTask(inserted), ...prev])
     setNewTitle('')
     setNewDueDate(null)
+    setNewTag(null)
     inputRef.current?.focus()
   }
 
@@ -205,21 +223,53 @@ function App() {
     }
   }
 
+  const updateTaskTag = async (task: Task, nextTag: TaskTag) => {
+    if (!supabase) return
+    if (task.tag === nextTag) return
+
+    const previous = task
+    const optimistic: Task = { ...task, tag: nextTag }
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? optimistic : t)))
+
+    const { data, error } = await supabase
+      .from('tasks')
+      .update({ tag: nextTag })
+      .eq('id', task.id)
+      .select('*')
+      .single()
+
+    if (error) {
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? previous : t)))
+      setError(`Could not update task tag: ${error.message}`)
+      return
+    }
+
+    const updated = data as DbTaskRow
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? toAppTask(updated) : t)))
+  }
+
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
     void addTask()
   }
 
   const todayKey = toLocalDateKey(new Date())
-  const totalCount = tasks.length
+  const allCount = tasks.length
+  const workCount = tasks.filter((task) => task.tag === 'work').length
+  const personalCount = tasks.filter((task) => task.tag === 'personal').length
+
+  const filteredTasks = useMemo(() => {
+    if (view === 'all') return tasks
+    return tasks.filter((task) => task.tag === view)
+  }, [tasks, view])
 
   const tasksWithFlags = useMemo(
     () =>
-      tasks.map((task) => ({
+      filteredTasks.map((task) => ({
         task,
         overdue: !task.completed && task.dueDate !== null && task.dueDate < todayKey,
       })),
-    [tasks, todayKey],
+    [filteredTasks, todayKey],
   )
 
   if (supabaseConfigError || !supabase) {
@@ -288,48 +338,109 @@ function App() {
           aria-label="Due date"
           disabled={saving}
         />
+        <select
+          className="compact-select"
+          value={newTag ?? 'none'}
+          onChange={(event) =>
+            setNewTag(event.target.value === 'none' ? null : (event.target.value as Exclude<TaskTag, null>))
+          }
+          aria-label="Task tag"
+          disabled={saving}
+        >
+          <option value="none">None</option>
+          <option value="work">Work</option>
+          <option value="personal">Personal</option>
+        </select>
         <button type="submit" disabled={saving}>
           {saving ? 'Saving...' : 'Add'}
         </button>
       </form>
 
-      <div className="toolbar">
-        <div className="counts">{loading ? 'Loading tasks...' : `${totalCount} total`}</div>
-      </div>
+      <div className="content-layout">
+        <aside className="sidebar" aria-label="Task views">
+          <button
+            type="button"
+            className={`sidebar-view ${view === 'all' ? 'active' : ''}`}
+            onClick={() => setView('all')}
+          >
+            <span>All</span>
+            <span className="view-count">{allCount}</span>
+          </button>
+          <button
+            type="button"
+            className={`sidebar-view ${view === 'work' ? 'active' : ''}`}
+            onClick={() => setView('work')}
+          >
+            <span>Work</span>
+            <span className="view-count">{workCount}</span>
+          </button>
+          <button
+            type="button"
+            className={`sidebar-view ${view === 'personal' ? 'active' : ''}`}
+            onClick={() => setView('personal')}
+          >
+            <span>Personal</span>
+            <span className="view-count">{personalCount}</span>
+          </button>
+        </aside>
 
-      <ul className="task-list">
-        {loading ? (
-          <li className="empty">Loading tasks...</li>
-        ) : tasksWithFlags.length === 0 ? (
-          <li className="empty">No tasks to show.</li>
-        ) : (
-          tasksWithFlags.map(({ task, overdue }) => (
-            <li
-              key={task.id}
-              className={`${task.completed ? 'done' : ''} ${overdue ? 'overdue' : ''}`}
-            >
-              <label className="task-item">
-                <input
-                  type="checkbox"
-                  checked={task.completed}
-                  onChange={() => void toggleTask(task)}
-                />
-                <div className="task-text">
-                  <span className="task-title">{task.title}</span>
-                  <div className="task-meta">
-                    <span>Created: {new Date(task.createdAt).toLocaleString()}</span>
-                    <span>Due: {task.dueDate ?? 'None'}</span>
-                    {overdue && <span className="overdue-badge">Overdue</span>}
-                  </div>
-                </div>
-              </label>
-              <button type="button" className="delete" onClick={() => void deleteTask(task)}>
-                Delete
-              </button>
-            </li>
-          ))
-        )}
-      </ul>
+        <section className="main-panel">
+          <div className="toolbar">
+            <div className="counts">{loading ? 'Loading tasks...' : `${tasksWithFlags.length} shown`}</div>
+          </div>
+
+          <ul className="task-list">
+            {loading ? (
+              <li className="empty">Loading tasks...</li>
+            ) : tasksWithFlags.length === 0 ? (
+              <li className="empty">No tasks to show.</li>
+            ) : (
+              tasksWithFlags.map(({ task, overdue }) => (
+                <li
+                  key={task.id}
+                  className={`${task.completed ? 'done' : ''} ${overdue ? 'overdue' : ''}`}
+                >
+                  <label className="task-item">
+                    <input
+                      type="checkbox"
+                      checked={task.completed}
+                      onChange={() => void toggleTask(task)}
+                    />
+                    <div className="task-text">
+                      <span className="task-title">{task.title}</span>
+                      <div className="task-meta">
+                        <span>Created: {new Date(task.createdAt).toLocaleString()}</span>
+                        <span>Due: {task.dueDate ?? 'None'}</span>
+                        <select
+                          className="tag-chip"
+                          value={task.tag ?? 'none'}
+                          onChange={(event) =>
+                            void updateTaskTag(
+                              task,
+                              event.target.value === 'none'
+                                ? null
+                                : (event.target.value as Exclude<TaskTag, null>),
+                            )
+                          }
+                          aria-label={`Tag for ${task.title}`}
+                        >
+                          <option value="none">None</option>
+                          <option value="work">Work</option>
+                          <option value="personal">Personal</option>
+                        </select>
+                        {overdue && <span className="overdue-badge">Overdue</span>}
+                      </div>
+                    </div>
+                  </label>
+                  <button type="button" className="delete" onClick={() => void deleteTask(task)}>
+                    Delete
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        </section>
+      </div>
     </div>
   )
 }
