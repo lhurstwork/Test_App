@@ -34,6 +34,7 @@ type InsertTaskPayload = {
 }
 
 type Theme = 'light' | 'dark'
+type AuthMode = 'sign_in' | 'sign_up'
 
 const THEME_KEY = 'theme'
 
@@ -92,12 +93,26 @@ const parseBuildVersion = (): { sha: string; time: string } => {
   return { sha: sha.trim() || 'dev', time: time.trim() || 'local' }
 }
 
+const toAuthMessage = (message: string): string => {
+  const normalized = message.toLowerCase()
+  if (normalized.includes('invalid login credentials')) return 'Invalid email or password.'
+  if (normalized.includes('user already registered')) return 'An account with this email already exists.'
+  if (normalized.includes('email not confirmed')) return 'Please confirm your email before signing in.'
+  return message
+}
+
 function App() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [newTitle, setNewTitle] = useState('')
   const [newDueDate, setNewDueDate] = useState<string | null>(null)
   const [newTag, setNewTag] = useState<TaskTag>(null)
   const [view, setView] = useState<TaskView>('all')
+  const [authMode, setAuthMode] = useState<AuthMode>('sign_in')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authLoading, setAuthLoading] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [authMessage, setAuthMessage] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>('light')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -106,12 +121,16 @@ function App() {
   const [build, setBuild] = useState<{ sha: string; time: string }>({ sha: 'dev', time: 'local' })
   const inputRef = useRef<HTMLInputElement | null>(null)
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (userId: string) => {
     if (!supabase) return
     setLoading(true)
     setError(null)
 
-    const query = supabase.from('tasks').select('*').order('created_at', { ascending: false })
+    const query = supabase
+      .from('tasks')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
     const { data, error } = await query
 
     setLoading(false)
@@ -157,7 +176,12 @@ function App() {
           return
         }
         setSession(data.session)
-        void loadTasks()
+        if (data.session?.user.id) {
+          void loadTasks(data.session.user.id)
+        } else {
+          setTasks([])
+          setLoading(false)
+        }
       })
       .catch(() => {
         if (isMounted) {
@@ -167,7 +191,13 @@ function App() {
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
-      void loadTasks()
+      setError(null)
+      if (nextSession?.user.id) {
+        void loadTasks(nextSession.user.id)
+      } else {
+        setTasks([])
+        setLoading(false)
+      }
     })
 
     return () => {
@@ -181,7 +211,7 @@ function App() {
   }, [])
 
   const addTask = async () => {
-    if (!supabase) return
+    if (!supabase || !session) return
     const trimmed = newTitle.trim()
     if (!trimmed) {
       setError('Task title cannot be empty.')
@@ -196,7 +226,7 @@ function App() {
       created_at: new Date().toISOString(),
       due_date: newDueDate,
       tag: newTag,
-      ...(session?.user.id ? { user_id: session.user.id } : {}),
+      user_id: session.user.id,
     }
 
     const { data, error } = await supabase.from('tasks').insert(payload).select('*').single()
@@ -215,7 +245,7 @@ function App() {
   }
 
   const toggleTask = async (task: Task) => {
-    if (!supabase) return
+    if (!supabase || !session) return
     const previous = task
     const optimistic: Task = { ...task, completed: !task.completed }
     setTasks((prev) => prev.map((t) => (t.id === task.id ? optimistic : t)))
@@ -224,6 +254,7 @@ function App() {
       .from('tasks')
       .update({ completed: optimistic.completed })
       .eq('id', task.id)
+      .eq('user_id', session.user.id)
       .select('*')
       .single()
 
@@ -238,11 +269,15 @@ function App() {
   }
 
   const deleteTask = async (task: Task) => {
-    if (!supabase) return
+    if (!supabase || !session) return
     const previous = tasks
     setTasks((prev) => prev.filter((t) => t.id !== task.id))
 
-    const { error } = await supabase.from('tasks').delete().eq('id', task.id)
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', task.id)
+      .eq('user_id', session.user.id)
     if (error) {
       setTasks(previous)
       setError(`Could not delete task: ${error.message}`)
@@ -250,7 +285,7 @@ function App() {
   }
 
   const updateTaskTag = async (task: Task, nextTag: TaskTag) => {
-    if (!supabase) return
+    if (!supabase || !session) return
     if (task.tag === nextTag) return
 
     const previous = task
@@ -261,6 +296,7 @@ function App() {
       .from('tasks')
       .update({ tag: nextTag })
       .eq('id', task.id)
+      .eq('user_id', session.user.id)
       .select('*')
       .single()
 
@@ -277,6 +313,54 @@ function App() {
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
     void addTask()
+  }
+
+  const onAuthSubmit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!supabase) return
+
+    const email = authEmail.trim()
+    if (!email || !authPassword) {
+      setAuthError('Email and password are required.')
+      setAuthMessage(null)
+      return
+    }
+
+    setAuthLoading(true)
+    setAuthError(null)
+    setAuthMessage(null)
+
+    if (authMode === 'sign_in') {
+      const { error } = await supabase.auth.signInWithPassword({ email, password: authPassword })
+      setAuthLoading(false)
+      if (error) {
+        setAuthError(toAuthMessage(error.message))
+        return
+      }
+      setAuthPassword('')
+      return
+    }
+
+    const { error } = await supabase.auth.signUp({ email, password: authPassword })
+    setAuthLoading(false)
+    if (error) {
+      setAuthError(toAuthMessage(error.message))
+      return
+    }
+
+    setAuthPassword('')
+    setAuthMessage('Account created. Check your email for confirmation if required, then sign in.')
+    setAuthMode('sign_in')
+  }
+
+  const logout = async () => {
+    if (!supabase) return
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      setError(`Could not log out: ${error.message}`)
+      return
+    }
+    setTasks([])
   }
 
   const todayKey = toLocalDateKey(new Date())
@@ -361,12 +445,101 @@ function App() {
     )
   }
 
+  if (!session) {
+    return (
+      <div className="app">
+        <header className="header">
+          <div className="title-row">
+            <h1>Personal Task Manager</h1>
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            >
+              {theme === 'dark' ? 'Light' : 'Dark'}
+            </button>
+          </div>
+          <p>Simple, synced, and fast.</p>
+          <p className="build-version">
+            Build: {build.sha} | {build.time}
+          </p>
+        </header>
+
+        <form className="auth-card" onSubmit={onAuthSubmit}>
+          <div className="auth-actions">
+            <button
+              type="button"
+              className={authMode === 'sign_in' ? '' : 'clear'}
+              onClick={() => {
+                setAuthMode('sign_in')
+                setAuthError(null)
+                setAuthMessage(null)
+              }}
+              disabled={authLoading}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              className={authMode === 'sign_up' ? '' : 'clear'}
+              onClick={() => {
+                setAuthMode('sign_up')
+                setAuthError(null)
+                setAuthMessage(null)
+              }}
+              disabled={authLoading}
+            >
+              Create account
+            </button>
+          </div>
+          <label className="auth-field">
+            Email
+            <input
+              type="email"
+              value={authEmail}
+              onChange={(event) => setAuthEmail(event.target.value)}
+              autoComplete="email"
+              disabled={authLoading}
+            />
+          </label>
+          <label className="auth-field">
+            Password
+            <input
+              type="password"
+              value={authPassword}
+              onChange={(event) => setAuthPassword(event.target.value)}
+              autoComplete={authMode === 'sign_in' ? 'current-password' : 'new-password'}
+              disabled={authLoading}
+            />
+          </label>
+          <div className="auth-actions">
+            <button type="submit" disabled={authLoading}>
+              {authLoading
+                ? authMode === 'sign_in'
+                  ? 'Signing in...'
+                  : 'Creating...'
+                : authMode === 'sign_in'
+                  ? 'Sign in'
+                  : 'Create account'}
+            </button>
+          </div>
+          {authMessage && <div className="auth-message">{authMessage}</div>}
+          {authError && <div className="inline-error">{authError}</div>}
+        </form>
+      </div>
+    )
+  }
+
   return (
     <div className="app">
       <header className="header">
         <div className="title-row">
           <h1>Personal Task Manager</h1>
           <div className="header-actions">
+            <span className="badge">{session.user.email ?? 'Signed in'}</span>
+            <button type="button" className="clear" onClick={() => void logout()}>
+              Logout
+            </button>
             <button
               type="button"
               className="theme-toggle"
