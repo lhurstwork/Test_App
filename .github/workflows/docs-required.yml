@@ -1,0 +1,67 @@
+name: docs-required
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  docs-required:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce docs updates for code changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.sha }}"
+          fi
+
+          if [[ -z "${BASE_SHA}" || "${BASE_SHA}" == "0000000000000000000000000000000000000000" ]]; then
+            BASE_SHA="$(git rev-list --max-parents=0 "${HEAD_SHA}")"
+          fi
+
+          CHANGED_FILES="$(git diff --name-only "${BASE_SHA}" "${HEAD_SHA}" || true)"
+
+          if [[ -z "${CHANGED_FILES}" ]]; then
+            echo "No changed files detected."
+            exit 0
+          fi
+
+          CODE_CHANGED="$(echo "${CHANGED_FILES}" | grep -E '^(src/|public/|supabase/|\.github/workflows/|package\.json$|vite\.config\.)' || true)"
+          DOC_CHANGED="$(echo "${CHANGED_FILES}" | grep -E '^docs/' || true)"
+
+          if [[ -z "${CODE_CHANGED}" ]]; then
+            echo "No code/config files requiring docs enforcement changed."
+            exit 0
+          fi
+
+          if [[ -n "${DOC_CHANGED}" ]]; then
+            echo "Docs update detected. Check passed."
+            exit 0
+          fi
+
+          echo "ERROR: Code/config changes detected without docs updates."
+          echo
+          echo "Changed files that triggered docs requirement:"
+          echo "${CODE_CHANGED}"
+          echo
+          echo "Please update at least one file under docs/ (for example docs/CHANGELOG.md)."
+          echo "Recommended updates by change type:"
+          echo "- Behavior/architecture: docs/ARCHITECTURE.md"
+          echo "- Schema/RLS: docs/DATA_MODEL.md"
+          echo "- Env/deploy/CI: docs/OPERATIONS.md"
+          echo "- Notable change log: docs/CHANGELOG.md"
+          exit 1
+
