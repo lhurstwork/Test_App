@@ -43,6 +43,10 @@ body.theme-dark .empty {
 
 body.theme-dark .task-form input,
 body.theme-dark .due-input,
+body.theme-dark .compact-select,
+body.theme-dark .inline-control,
+body.theme-dark .auth-field input,
+body.theme-dark .auth-card,
 body.theme-dark .filters button,
 body.theme-dark .task-list li,
 body.theme-dark .clear,
@@ -70,6 +74,16 @@ body.theme-dark .delete {
 
 body.theme-dark .task-meta {
   color: #9ca3af;
+}
+
+body.theme-dark .import-banner {
+  background: #0a2540;
+  border-color: #1d4ed8;
+  color: #bfdbfe;
+}
+
+body.theme-dark .auth-message {
+  color: #93c5fd;
 }
 
 body.theme-dark .overdue {
