@@ -35,6 +35,9 @@ type InsertTaskPayload = {
 
 type Theme = 'light' | 'dark'
 type AuthMode = 'sign_in' | 'sign_up'
+type DbProfileRow = {
+  name: string | null
+}
 
 const THEME_KEY = 'theme'
 
@@ -110,9 +113,12 @@ function App() {
   const [authMode, setAuthMode] = useState<AuthMode>('sign_in')
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
+  const [authName, setAuthName] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
   const [authMessage, setAuthMessage] = useState<string | null>(null)
+  const [profileName, setProfileName] = useState<string | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
   const [theme, setTheme] = useState<Theme>('light')
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -143,6 +149,28 @@ function App() {
     setTasks(rows.map(toAppTask))
   }, [])
 
+  const loadProfile = useCallback(async (userId: string) => {
+    if (!supabase) return
+    setProfileLoading(true)
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('name')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    setProfileLoading(false)
+    if (error) {
+      setProfileName(null)
+      setError('Could not load profile name.')
+      return
+    }
+
+    const profile = data as DbProfileRow | null
+    const normalizedName = profile?.name?.trim() ?? ''
+    setProfileName(normalizedName || null)
+  }, [])
+
   useEffect(() => {
     setBuild(parseBuildVersion())
   }, [])
@@ -164,6 +192,14 @@ function App() {
   }, [theme])
 
   useEffect(() => {
+    if (session && profileName) {
+      document.title = `${profileName} • Personal Task Manager`
+      return
+    }
+    document.title = 'Personal Task Manager'
+  }, [session, profileName])
+
+  useEffect(() => {
     if (!supabase) return
 
     let isMounted = true
@@ -178,8 +214,10 @@ function App() {
         setSession(data.session)
         if (data.session?.user.id) {
           void loadTasks(data.session.user.id)
+          void loadProfile(data.session.user.id)
         } else {
           setTasks([])
+          setProfileName(null)
           setLoading(false)
         }
       })
@@ -194,8 +232,10 @@ function App() {
       setError(null)
       if (nextSession?.user.id) {
         void loadTasks(nextSession.user.id)
+        void loadProfile(nextSession.user.id)
       } else {
         setTasks([])
+        setProfileName(null)
         setLoading(false)
       }
     })
@@ -204,7 +244,7 @@ function App() {
       isMounted = false
       data.subscription.unsubscribe()
     }
-  }, [loadTasks])
+  }, [loadProfile, loadTasks])
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -341,16 +381,44 @@ function App() {
       return
     }
 
-    const { error } = await supabase.auth.signUp({ email, password: authPassword })
-    setAuthLoading(false)
+    const trimmedName = authName.trim()
+    if (!trimmedName) {
+      setAuthLoading(false)
+      setAuthError('Name is required.')
+      return
+    }
+
+    const { data, error } = await supabase.auth.signUp({ email, password: authPassword })
     if (error) {
+      setAuthLoading(false)
       setAuthError(toAuthMessage(error.message))
       return
     }
 
+    const userId = data.user?.id ?? data.session?.user?.id ?? null
+    if (userId) {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert({ user_id: userId, name: trimmedName }, { onConflict: 'user_id' })
+
+      if (profileError) {
+        setAuthError('Account created, but profile setup failed. Please sign in and try again.')
+      } else {
+        setProfileName(trimmedName)
+      }
+    } else {
+      setAuthError('Account created, but profile setup could not be completed yet.')
+    }
+
     setAuthPassword('')
-    setAuthMessage('Account created. Check your email for confirmation if required, then sign in.')
+    setAuthName('')
+    setAuthMessage(
+      data.session
+        ? 'Account created successfully. You can sign in now.'
+        : 'Account created. Check your email for confirmation if required, then sign in.',
+    )
     setAuthMode('sign_in')
+    setAuthLoading(false)
   }
 
   const logout = async () => {
@@ -361,6 +429,7 @@ function App() {
       return
     }
     setTasks([])
+    setProfileName(null)
   }
 
   const todayKey = toLocalDateKey(new Date())
@@ -492,6 +561,18 @@ function App() {
               Create account
             </button>
           </div>
+          {authMode === 'sign_up' && (
+            <label className="auth-field">
+              Name
+              <input
+                type="text"
+                value={authName}
+                onChange={(event) => setAuthName(event.target.value)}
+                autoComplete="name"
+                disabled={authLoading}
+              />
+            </label>
+          )}
           <label className="auth-field">
             Email
             <input
@@ -536,7 +617,11 @@ function App() {
         <div className="title-row">
           <h1>Personal Task Manager</h1>
           <div className="header-actions">
-            <span className="badge">{session.user.email ?? 'Signed in'}</span>
+            {profileLoading ? (
+              <span className="badge">Loading profile...</span>
+            ) : (
+              <span className="badge">{profileName ?? session.user.email ?? 'Signed in'}</span>
+            )}
             <button type="button" className="clear" onClick={() => void logout()}>
               Logout
             </button>
