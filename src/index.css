@@ -36,6 +36,7 @@ body.theme-dark {
 }
 
 body.theme-dark .header p,
+body.theme-dark .build-version,
 body.theme-dark .counts,
 body.theme-dark .empty {
   color: #9ca3af;

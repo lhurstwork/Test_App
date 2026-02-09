@@ -122,6 +122,8 @@ const toImportableTask = (value: unknown): ImportableTask | null => {
 }
 
 function App() {
+  const buildSha = (import.meta.env.VITE_BUILD_SHA || 'dev').slice(0, 7)
+  const buildTime = import.meta.env.VITE_BUILD_TIME || 'local'
   const [tasks, setTasks] = useState<Task[]>([])
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState<string | null>(null)
@@ -143,8 +145,11 @@ function App() {
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
-    document.title = "Personal Task Manager"
-  }, [])
+    const meta = document.querySelector('meta[name="build-version"]')
+    if (meta) {
+      meta.setAttribute('content', `${buildSha}|${buildTime}`)
+    }
+  }, [buildSha, buildTime])
 
   useEffect(() => {
     const storedTheme = localStorage.getItem(THEME_KEY)
@@ -492,7 +497,7 @@ function App() {
       <div className="app">
         <header className="header">
           <div className="title-row">
-            <h1>Task Manager</h1>
+            <h1>Personal Task Manager</h1>
             <button
               type="button"
               className="theme-toggle"
@@ -501,6 +506,9 @@ function App() {
               {theme === 'dark' ? 'Light' : 'Dark'}
             </button>
           </div>
+          <p className="build-version">
+            Build: {buildSha} • {buildTime}
+          </p>
         </header>
         <div className="error">{supabaseConfigError}</div>
       </div>
@@ -512,7 +520,7 @@ function App() {
       <div className="app">
         <header className="header">
           <div className="title-row">
-            <h1>Task Manager</h1>
+            <h1>Personal Task Manager</h1>
             <button
               type="button"
               className="theme-toggle"
@@ -522,6 +530,9 @@ function App() {
             </button>
           </div>
           <p>Sign in to sync tasks across devices.</p>
+          <p className="build-version">
+            Build: {buildSha} • {buildTime}
+          </p>
         </header>
 
         <form
@@ -570,7 +581,7 @@ function App() {
     <div className="app">
       <header className="header">
         <div className="title-row">
-          <h1>Personal Task Managerv999</h1>
+          <h1>Personal Task Manager</h1>
           <div className="header-actions">
             <button
               type="button"
@@ -585,6 +596,9 @@ function App() {
           </div>
         </div>
         <p>Simple, synced, and fast.</p>
+        <p className="build-version">
+          Build: {buildSha} • {buildTime}
+        </p>
       </header>
 
       {importCandidates.length > 0 && (

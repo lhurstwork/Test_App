@@ -47,6 +47,12 @@
   color: #5f6b7a;
 }
 
+.build-version {
+  margin: 0.25rem 0 0;
+  color: #6b7280;
+  font-size: 0.8rem;
+}
+
 .task-form {
   display: flex;
   gap: 0.75rem;
